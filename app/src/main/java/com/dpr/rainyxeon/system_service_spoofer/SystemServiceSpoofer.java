@@ -1,8 +1,5 @@
 package com.dpr.rainyxeon.system_service_spoofer;
 
-import android.content.res.Configuration;
-import android.content.res.Resources;
-
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -16,7 +13,7 @@ public class SystemServiceSpoofer implements IXposedHookLoadPackage {
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
-        if (!lpparam.packageName.equals("android")) return;
+        if (!"android".equals(lpparam.packageName)) return;
 
         try {
             hookListService();
@@ -26,24 +23,25 @@ public class SystemServiceSpoofer implements IXposedHookLoadPackage {
     }
 
     private void hookListService() {
-        XposedHelpers.findAndHookMethod(
+        Class<?> smClass = XposedHelpers.findClass(
             "android.os.ServiceManager",
-            null,
-            "listServices",
-            new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    String[] services = (String[]) param.getResult();
-                    if (services == null) return;
-                    List<String> filtered = new ArrayList<>();
-                    for (String s : services) {
-                        if (!s.contains("lineage")) {
-                            filtered.add(s);
-                        }
-                    }
-                    param.setResult(filtered.toArray(new String[0]));
-                }
-            }
+            ClassLoader.getSystemClassLoader()
         );
+        XposedBridge.hookAllMethods(smClass, "listServices", new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) {
+                String[] services = (String[]) param.getResult();
+                if (services == null) return;
+                List<String> filtered = new ArrayList<>();
+                for (String s : services) {
+                    if (s != null && !s.contains("lineage")) {
+                        XposedBridge.log("[ServiceSpoofer] Service filtered: " + s);
+                        filtered.add(s);
+                    }
+                }
+                param.setResult(filtered.toArray(new String[0]));
+                XposedBridge.log("[ServiceSpoofer] Total services filtered: " + filtered.size());
+            }
+        });
     }
 }
