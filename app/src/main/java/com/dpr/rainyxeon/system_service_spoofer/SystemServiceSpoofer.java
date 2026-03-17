@@ -1,129 +1,127 @@
 package com.dpr.rainyxeon.system_service_spoofer;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Arrays;
 
-import de.robv.android.xposed.IXposedHookZygoteInit;
+import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
+import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-public class SystemServiceSpoofer implements IXposedHookZygoteInit {
+public class SystemServiceSpoofer implements IXposedHookLoadPackage {
 
     private static final String TAG = "[ServiceSpoofer] ";
 
     @Override
-    public void initZygote(StartupParam startupParam) {
-        XposedBridge.log(TAG + "Zygote init start");
+    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
+        XposedBridge.log(TAG + "Loaded: " + lpparam.packageName);
 
         try {
-            Class<?> smClass = XposedHelpers.findClass(
-                "android.os.ServiceManager",
-                null
-            );
-
-            XposedBridge.log(TAG + "ServiceManager class: " + smClass);
-
-            hookListServices(smClass);
-            hookGetService(smClass);
-            hookCheckService(smClass);
-
+            hookServiceManager(lpparam);
+            hookBinder(lpparam);
+            hookRuntimeExec(lpparam);
         } catch (Throwable t) {
-            XposedBridge.log(TAG + "Zygote ERROR:");
+            XposedBridge.log(TAG + "ERROR:");
             XposedBridge.log(t);
         }
     }
 
-    private void hookListServices(Class<?> smClass) {
-        XposedBridge.hookAllMethods(smClass, "listServices", new XC_MethodHook() {
+    // ServiceManager hooks
+    private void hookServiceManager(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            Class<?> smClass = XposedHelpers.findClass(
+                "android.os.ServiceManager",
+                lpparam.classLoader
+            );
 
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) {
-                XposedBridge.log(TAG + "listServices() called");
-            }
+            XposedBridge.log(TAG + "ServiceManager hooked in: " + lpparam.packageName);
 
-            @Override
-            protected void afterHookedMethod(MethodHookParam param) {
-                XposedBridge.log(TAG + "listServices() AFTER");
-
-                String[] services = (String[]) param.getResult();
-
-                if (services == null) {
-                    XposedBridge.log(TAG + "services == null");
-                    return;
+            // listServices
+            XposedBridge.hookAllMethods(smClass, "listServices", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    XposedBridge.log(TAG + "listServices() called");
                 }
+            });
 
-                XposedBridge.log(TAG + "Original size: " + services.length);
+            // getService
+            XposedBridge.hookAllMethods(smClass, "getService", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    String name = (String) param.args[0];
+                    XposedBridge.log(TAG + "getService(): " + name);
+                }
+            });
 
-                List<String> filtered = new ArrayList<>();
+            // checkService
+            XposedBridge.hookAllMethods(smClass, "checkService", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    String name = (String) param.args[0];
+                    XposedBridge.log(TAG + "checkService(): " + name);
+                }
+            });
 
-                for (String s : services) {
-                    XposedBridge.log(TAG + "Service: " + s);
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + "ServiceManager hook failed in: " + lpparam.packageName);
+        }
+    }
 
-                    if (s != null && !s.contains("lineage")) {
-                        filtered.add(s);
-                    } else {
-                        XposedBridge.log(TAG + "Filtered OUT: " + s);
+    // Binder layer hook
+    private void hookBinder(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                "android.os.BinderProxy",
+                lpparam.classLoader,
+                "transact",
+                int.class,
+                android.os.Parcel.class,
+                android.os.Parcel.class,
+                int.class,
+                new XC_MethodHook() {
+
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        int code = (int) param.args[0];
+
+                        XposedBridge.log(TAG + "Binder.transact code=" + code +
+                                " | process=" + lpparam.packageName);
                     }
                 }
+            );
 
-                param.setResult(filtered.toArray(new String[0]));
-                XposedBridge.log(TAG + "Filtered size: " + filtered.size());
-            }
-        });
+            XposedBridge.log(TAG + "Binder hook installed in: " + lpparam.packageName);
 
-        XposedBridge.log(TAG + "listServices hook installed");
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + "Binder hook failed in: " + lpparam.packageName);
+        }
     }
 
-    private void hookGetService(Class<?> smClass) {
-        XposedBridge.hookAllMethods(smClass, "getService", new XC_MethodHook() {
+    // Shell detection hook
+    private void hookRuntimeExec(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                "java.lang.Runtime",
+                lpparam.classLoader,
+                "exec",
+                String.class,
+                new XC_MethodHook() {
 
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) {
-                String name = (String) param.args[0];
-                XposedBridge.log(TAG + "getService(): " + name);
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        String cmd = (String) param.args[0];
 
-                if (name != null && (name.contains("lineage") || name.contains("profile"))) {
-                    XposedBridge.log(TAG + "Blocking getService: " + name);
-                    param.setResult(null);
+                        XposedBridge.log(TAG + "Runtime.exec(): " + cmd);
+
+                        if (cmd != null && cmd.contains("service")) {
+                            XposedBridge.log(TAG + "⚠️ Possible service detection via shell!");
+                        }
+                    }
                 }
-            }
+            );
 
-            @Override
-            protected void afterHookedMethod(MethodHookParam param) {
-                String name = (String) param.args[0];
-                Object result = param.getResult();
-
-                XposedBridge.log(TAG + "getService result [" + name + "]: " + result);
-            }
-        });
-
-        XposedBridge.log(TAG + "getService hook installed");
-    }
-
-    private void hookCheckService(Class<?> smClass) {
-        XposedBridge.hookAllMethods(smClass, "checkService", new XC_MethodHook() {
-
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) {
-                String name = (String) param.args[0];
-                XposedBridge.log(TAG + "checkService(): " + name);
-
-                if (name != null && name.contains("lineage")) {
-                    XposedBridge.log(TAG + "Blocking checkService: " + name);
-                    param.setResult(null);
-                }
-            }
-
-            @Override
-            protected void afterHookedMethod(MethodHookParam param) {
-                String name = (String) param.args[0];
-                Object result = param.getResult();
-
-                XposedBridge.log(TAG + "checkService result [" + name + "]: " + result);
-            }
-        });
-
-        XposedBridge.log(TAG + "checkService hook installed");
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + "Runtime.exec hook failed in: " + lpparam.packageName);
+        }
     }
 }
