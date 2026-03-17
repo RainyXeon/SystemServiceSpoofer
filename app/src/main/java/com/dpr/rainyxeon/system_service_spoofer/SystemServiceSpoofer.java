@@ -18,7 +18,6 @@ public class SystemServiceSpoofer implements IXposedHookLoadPackage {
 
         try {
             hookServiceManager(lpparam);
-            hookBinder(lpparam);
             hookRuntimeExec(lpparam);
         } catch (Throwable t) {
             XposedBridge.log(TAG + "ERROR:");
@@ -64,36 +63,6 @@ public class SystemServiceSpoofer implements IXposedHookLoadPackage {
 
         } catch (Throwable t) {
             XposedBridge.log(TAG + "ServiceManager hook failed in: " + lpparam.packageName);
-        }
-    }
-
-    // Binder layer hook
-    private void hookBinder(XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            XposedHelpers.findAndHookMethod(
-                "android.os.BinderProxy",
-                lpparam.classLoader,
-                "transact",
-                int.class,
-                android.os.Parcel.class,
-                android.os.Parcel.class,
-                int.class,
-                new XC_MethodHook() {
-
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        int code = (int) param.args[0];
-
-                        XposedBridge.log(TAG + "Binder.transact code=" + code +
-                                " | process=" + lpparam.packageName);
-                    }
-                }
-            );
-
-            XposedBridge.log(TAG + "Binder hook installed in: " + lpparam.packageName);
-
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + "Binder hook failed in: " + lpparam.packageName);
         }
     }
 
