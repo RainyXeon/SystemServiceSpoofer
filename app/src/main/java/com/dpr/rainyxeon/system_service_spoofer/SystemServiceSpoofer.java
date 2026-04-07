@@ -38,8 +38,18 @@ public class SystemServiceSpoofer implements IXposedHookLoadPackage {
             // listServices
             XposedBridge.hookAllMethods(smClass, "listServices", new XC_MethodHook() {
                 @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    XposedBridge.log(TAG + "listServices() called");
+                protected void afterHookedMethod(MethodHookParam param) {
+                    Object result = param.getResult();
+
+                    if (result instanceof String[]) {
+                        String[] services = (String[]) result;
+
+                        String[] filtered = Arrays.stream(services)
+                            .filter(s -> s != null && !s.toLowerCase().contains("lineage"))
+                            .toArray(String[]::new);
+
+                        param.setResult(filtered);
+                    }
                 }
             });
 
@@ -48,7 +58,11 @@ public class SystemServiceSpoofer implements IXposedHookLoadPackage {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
                     String name = (String) param.args[0];
-                    XposedBridge.log(TAG + "getService(): " + name);
+
+                    if (name != null && name.toLowerCase().contains("lineage")) {
+                        XposedBridge.log(TAG + "Blocked getService(): " + name);
+                        param.setResult(null);
+                    }
                 }
             });
 
@@ -57,7 +71,11 @@ public class SystemServiceSpoofer implements IXposedHookLoadPackage {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
                     String name = (String) param.args[0];
-                    XposedBridge.log(TAG + "checkService(): " + name);
+
+                    if (name != null && name.toLowerCase().contains("lineage")) {
+                        XposedBridge.log(TAG + "Blocked checkService(): " + name);
+                        param.setResult(null);
+                    }
                 }
             });
 
